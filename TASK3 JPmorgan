@@ -1,0 +1,93 @@
+import random
+from datetime import datetime
+import json
+from flask import Flask, Response
+
+app = Flask(__name__)
+
+def get_data():
+    stocks = ["AAPL", "MSFT"]
+    prices = {stock: random.uniform(100, 500) for stock in stocks}
+    ratio = prices["AAPL"] / prices["MSFT"]
+    upper_bound = ratio * 1.10
+    lower_bound = ratio * 0.90
+    data = {
+        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "AAPL": prices["AAPL"],
+        "MSFT": prices["MSFT"],
+        "ratio": ratio,
+        "upper_bound": upper_bound,
+        "lower_bound": lower_bound
+    }
+    return json.dumps(data)
+
+@app.route('/data')
+def data():
+    def generate():
+        while True:
+            yield f"data:{get_data()}\n\n"
+            time.sleep(1)
+    return Response(generate(), mimetype='text/event-stream')
+
+if __name__ == '__main__':
+    app.run(port=5000)
+//Java Script
+import { table } from "@finos/perspective";
+import { PerspectiveViewerElement } from "@finos/perspective-viewer";
+import "@finos/perspective-viewer/dist/umd/material.css";
+
+// Create a Perspective table
+const schema = {
+    timestamp: "string",
+    AAPL: "float",
+    MSFT: "float",
+    ratio: "float",
+    upper_bound: "float",
+    lower_bound: "float"
+};
+
+const table = window.perspective.worker().table(schema);
+
+// Load the table into the Perspective viewer
+const viewer = document.createElement("perspective-viewer");
+viewer.load(table);
+document.body.appendChild(viewer);
+
+// Set the viewer configuration
+viewer.setAttribute("view", "y_line");
+viewer.setAttribute("row-pivots", '["timestamp"]');
+viewer.setAttribute("columns", '["ratio", "upper_bound", "lower_bound"]');
+viewer.setAttribute("aggregates", JSON.stringify({
+    timestamp: "distinct count",
+    AAPL: "avg",
+    MSFT: "avg",
+    ratio: "avg",
+    upper_bound: "avg",
+    lower_bound: "avg"
+}));
+
+// Function to fetch data and update the table
+async function fetchData() {
+    const response = await fetch('http://localhost:5000/data');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split('\n\n');
+        parts.slice(0, -1).forEach(part => {
+            if (part.startsWith('data:')) {
+                const json = part.slice(5);
+                table.update([JSON.parse(json)]);
+            }
+        });
+        buffer = parts[parts.length - 1];
+    }
+}
+
+// Start fetching data
+fetchData();
